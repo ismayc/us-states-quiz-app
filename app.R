@@ -10,6 +10,9 @@ states <- read_rds("states_enriched2023.rds")
 
 library(googlesheets4)
 
+googlesheets4::gs4_auth(path = "shiny-sheets-writer-key.json")
+
+
 # UI
 ui <- fluidPage(
   titlePanel("US State/District Shape Quiz"),
@@ -47,7 +50,7 @@ ui <- fluidPage(
       actionButton("giveup", "Give Up on This State/District"),
       actionButton("restart", "Restart Quiz"),
       verbatimTextOutput("feedback"),
-      checkboxInput("save", "Log results to Google Sheets?", value = FALSE),
+      checkboxInput("save", "Log overall quiz results to Google Sheets?", value = FALSE),
       conditionalPanel(
         condition = "input.save",
         textInput("user_name", "Enter your name:"),
@@ -291,18 +294,54 @@ server <- function(input, output, session) {
         normalize_city(true_second)
     }
 
+    feedback_parts <- c()
+    
+    if (is_state_correct) {
+      feedback_parts <- c(feedback_parts, "✅ State correct")
+    } else {
+      feedback_parts <- c(feedback_parts, "❌ State incorrect")
+      wrong_states(c(wrong_states(), current_state()))
+    }
+    
+    if (input$guess_capital) {
+      if (is_capital_correct) {
+        feedback_parts <- c(feedback_parts, "✅ Capital correct")
+      } else {
+        feedback_parts <- c(feedback_parts, "❌ Capital incorrect")
+        wrong_capitals(c(wrong_capitals(), current_state()))
+      }
+    }
+    
+    if (input$guess_largest) {
+      if (is_largest_correct) {
+        feedback_parts <- c(feedback_parts, "✅ Largest city correct")
+      } else {
+        feedback_parts <- c(feedback_parts, "❌ Largest city incorrect")
+        wrong_largests(c(wrong_largests(), current_state()))
+      }
+    }
+    
+    if (input$guess_second) {
+      if (is_second_correct) {
+        feedback_parts <- c(feedback_parts, "✅ Second largest city correct")
+      } else {
+        feedback_parts <- c(feedback_parts, "❌ Second largest city incorrect")
+        wrong_second_largests(c(wrong_second_largests(), current_state()))
+      }
+    }
+    
+    output$feedback <- renderText(paste(feedback_parts, collapse = "\n"))
+    
     if (
       is_state_correct &&
-        is_capital_correct &&
-        is_largest_correct &&
-        is_second_correct
+      is_capital_correct &&
+      is_largest_correct &&
+      is_second_correct
     ) {
-      # Update score & lists
       guessed_states(c(guessed_states(), answered))
       score(score() + 1)
       remaining_states(setdiff(remaining_states(), answered))
-
-      # Draw guessed polygons
+      
       leafletProxy("us_map") |>
         clearGroup("guessed") |>
         addPolygons(
@@ -315,45 +354,20 @@ server <- function(input, output, session) {
             state_name,
             "<br>Population: ",
             format(state_population, big.mark = ",")
-          ) |>
-            lapply(htmltools::HTML)
+          ) |> lapply(htmltools::HTML)
         )
-
+      
       add_city_markers(answered)
-
-      # Advance to next state
+      
       next_states <- remaining_states()
       current_state(if (length(next_states) > 0) next_states[1] else NULL)
-
-      output$feedback <- renderText(
-        paste0(
-          "✅ Correct!",
-          if (input$guess_capital) " Correct cities too!" else ""
-        )
-      )
+      
       updateTextInput(session, "state_guess", value = "")
       updateTextInput(session, "capital_guess", value = "")
       updateTextInput(session, "largest_guess", value = "")
       updateTextInput(session, "second_guess", value = "")
-    } else if (!is_state_correct) {
-      wrong_states(c(wrong_states(), current_state()))
-      output$feedback <- renderText("❌ Incorrect state guess.")
-    } else if (!is_capital_correct) {
-      wrong_capitals(c(wrong_capitals(), current_state()))
-      output$feedback <- renderText(
-        "✅ State correct, ❌ but capital is incorrect."
-      )
-    } else if (!is_largest_correct) {
-      wrong_largests(c(wrong_largests(), current_state()))
-      output$feedback <- renderText(
-        "✅ State correct, ❌ Largest city incorrect."
-      )
-    } else if (!is_second_correct) {
-      wrong_second_largests(c(wrong_second_largests(), current_state()))
-      output$feedback <- renderText(
-        "✅ State correct, ❌ Second largest city incorrect."
-      )
     }
+    
   })
 
   # Give Up handler
