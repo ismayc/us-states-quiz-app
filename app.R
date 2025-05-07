@@ -46,11 +46,23 @@ ui <- fluidPage(
         condition = "input.guess_second",
         textInput("second_guess", "Guess the second largest city:")
       ),
+      helpText(
+        paste("You can make unlimited guesses for each question by",
+        "clicking on 'Submit Guess'.")
+      ),
+      helpText(
+        paste("If you're stuck on a question, click",
+        "'Give Up on This Question' to see the answer.")
+      ),
       actionButton("submit", "Submit Guess"),
-      actionButton("giveup", "Give Up on This State/District"),
+      actionButton("giveup", "Give Up on This Question"),
       actionButton("restart", "Restart Quiz"),
       verbatimTextOutput("feedback"),
-      checkboxInput("save", "Log overall quiz results to Google Sheets?", value = FALSE),
+      checkboxInput(
+        "save",
+        "Log overall quiz results to Google Sheets?",
+        value = FALSE
+      ),
       conditionalPanel(
         condition = "input.save",
         textInput("user_name", "Enter your name:"),
@@ -295,14 +307,14 @@ server <- function(input, output, session) {
     }
 
     feedback_parts <- c()
-    
+
     if (is_state_correct) {
       feedback_parts <- c(feedback_parts, "✅ State correct")
     } else {
       feedback_parts <- c(feedback_parts, "❌ State incorrect")
       wrong_states(c(wrong_states(), current_state()))
     }
-    
+
     if (input$guess_capital) {
       if (is_capital_correct) {
         feedback_parts <- c(feedback_parts, "✅ Capital correct")
@@ -311,7 +323,7 @@ server <- function(input, output, session) {
         wrong_capitals(c(wrong_capitals(), current_state()))
       }
     }
-    
+
     if (input$guess_largest) {
       if (is_largest_correct) {
         feedback_parts <- c(feedback_parts, "✅ Largest city correct")
@@ -320,7 +332,7 @@ server <- function(input, output, session) {
         wrong_largests(c(wrong_largests(), current_state()))
       }
     }
-    
+
     if (input$guess_second) {
       if (is_second_correct) {
         feedback_parts <- c(feedback_parts, "✅ Second largest city correct")
@@ -329,19 +341,19 @@ server <- function(input, output, session) {
         wrong_second_largests(c(wrong_second_largests(), current_state()))
       }
     }
-    
+
     output$feedback <- renderText(paste(feedback_parts, collapse = "\n"))
-    
+
     if (
       is_state_correct &&
-      is_capital_correct &&
-      is_largest_correct &&
-      is_second_correct
+        is_capital_correct &&
+        is_largest_correct &&
+        is_second_correct
     ) {
       guessed_states(c(guessed_states(), answered))
       score(score() + 1)
       remaining_states(setdiff(remaining_states(), answered))
-      
+
       leafletProxy("us_map") |>
         clearGroup("guessed") |>
         addPolygons(
@@ -352,22 +364,22 @@ server <- function(input, output, session) {
           weight = 1,
           label = ~ paste0(
             state_name,
-            "<br>Population: ",
+            "<br>Population (2023): ",
             format(state_population, big.mark = ",")
-          ) |> lapply(htmltools::HTML)
+          ) |>
+            lapply(htmltools::HTML)
         )
-      
+
       add_city_markers(answered)
-      
+
       next_states <- remaining_states()
       current_state(if (length(next_states) > 0) next_states[1] else NULL)
-      
+
       updateTextInput(session, "state_guess", value = "")
       updateTextInput(session, "capital_guess", value = "")
       updateTextInput(session, "largest_guess", value = "")
       updateTextInput(session, "second_guess", value = "")
     }
-    
   })
 
   # Give Up handler
@@ -392,7 +404,7 @@ server <- function(input, output, session) {
         weight = 1,
         label = ~ paste0(
           state_name,
-          "<br>Population: ",
+          "<br>Population (2023): ",
           format(state_population, big.mark = ",")
         ) |>
           lapply(htmltools::HTML)
@@ -403,17 +415,24 @@ server <- function(input, output, session) {
 
     # Extract capital, largest, and second largest cities for display
     state_info <- states |> filter(state_name == given_up)
-    
+
     capname <- state_info$capital
     largest <- state_info$largest_city
     second <- state_info$second_largest_city
-    
+
     output$feedback <- renderText(
       paste0(
-        "🙈 The correct answer was: ", given_up, "\n",
-        "🏛️ Capital: ", capname, "\n",
-        "🌆 Largest city: ", largest, "\n",
-        "🏙️ Second largest city: ", second
+        "🙈 The correct answer was: ",
+        given_up,
+        "\n",
+        "🏛️ Capital: ",
+        capname,
+        "\n",
+        "🌆 Largest city: ",
+        largest,
+        "\n",
+        "🏙️ Second largest city: ",
+        second
       )
     )
 
