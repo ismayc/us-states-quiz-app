@@ -401,11 +401,20 @@ server <- function(input, output, session) {
     # Show its capital, largest city, and second largest city
     add_city_markers(given_up)
 
-    # Extract capital name for display
-    capname <- states |> filter(state_name == given_up) |> pull(capital)
-
+    # Extract capital, largest, and second largest cities for display
+    state_info <- states |> filter(state_name == given_up)
+    
+    capname <- state_info$capital
+    largest <- state_info$largest_city
+    second <- state_info$second_largest_city
+    
     output$feedback <- renderText(
-      paste0("🙈 The correct answer was: ", given_up, " (", capname, ")")
+      paste0(
+        "🙈 The correct answer was: ", given_up, "\n",
+        "🏛️ Capital: ", capname, "\n",
+        "🌆 Largest city: ", largest, "\n",
+        "🏙️ Second largest city: ", second
+      )
     )
 
     # Advance
