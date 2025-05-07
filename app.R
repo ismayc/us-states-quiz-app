@@ -1,59 +1,6 @@
-library(shiny)
-library(tigris)
-library(sf)
-library(leaflet)
-library(dplyr)
-library(stringr)
-library(ggplot2)
-library(purrr)
+source("prep.R")
 
-options(tigris_use_cache = TRUE)
-
-# Load US state shapes (excluding territories)
-states <- states(cb = TRUE, resolution = "20m") %>%
-  filter(!STUSPS %in% c("PR", "VI", "GU", "MP", "AS")) %>%
-  st_transform(4326) %>%
-  mutate(state_name = NAME)
-
-# Clean up Alaska (mainland only)
-alaska_polygons <- states %>% filter(state_name == "Alaska") %>% st_cast("POLYGON")
-alaska_mainland <- alaska_polygons %>%
-  mutate(bbox = map(geometry, st_bbox)) %>%
-  mutate(
-    xmin = map_dbl(bbox, ~ .x["xmin"]),
-    xmax = map_dbl(bbox, ~ .x["xmax"]),
-    ymin = map_dbl(bbox, ~ .x["ymin"]),
-    ymax = map_dbl(bbox, ~ .x["ymax"])
-  ) %>%
-  filter(xmax > -168, ymax > 54)
-alaska_clean <- alaska_mainland %>%
-  summarize(geometry = st_union(geometry)) %>%
-  st_as_sf() %>%
-  mutate(state_name = "Alaska")
-alaska_meta <- states %>%
-  filter(state_name == "Alaska") %>%
-  st_drop_geometry() %>%
-  select(-state_name)
-alaska_clean <- bind_cols(alaska_clean, alaska_meta)
-states <- states %>%
-  filter(state_name != "Alaska") %>%
-  bind_rows(alaska_clean)
-
-# Add state capitals
-capitals <- tibble::tibble(
-  state_name = state.name,
-  capital = c("Montgomery", "Juneau", "Phoenix", "Little Rock", "Sacramento",
-              "Denver", "Hartford", "Dover", "Tallahassee", "Atlanta", "Honolulu",
-              "Boise", "Springfield", "Indianapolis", "Des Moines", "Topeka",
-              "Frankfort", "Baton Rouge", "Augusta", "Annapolis", "Boston",
-              "Lansing", "Saint Paul", "Jackson", "Jefferson City", "Helena",
-              "Lincoln", "Carson City", "Concord", "Trenton", "Santa Fe",
-              "Albany", "Raleigh", "Bismarck", "Columbus", "Oklahoma City",
-              "Salem", "Harrisburg", "Providence", "Columbia", "Pierre",
-              "Nashville", "Austin", "Salt Lake City", "Montpelier", "Richmond",
-              "Olympia", "Charleston", "Madison", "Cheyenne")
-)
-states <- left_join(states, capitals, by = "state_name")
+library(googlesheets4)
 
 # UI
 ui <- fluidPage(
@@ -61,6 +8,8 @@ ui <- fluidPage(
   h4("Created by Chester Ismay"),
   sidebarLayout(
     sidebarPanel(
+      verbatimTextOutput("question_number"),
+      uiOutput("progress_bar"),
       plotOutput("state_shape", height = "200px"),
       textInput("state_guess", "Guess the state/district name:"),
       checkboxInput("guess_capital", "Also guess the capital?", value = FALSE),
@@ -71,7 +20,13 @@ ui <- fluidPage(
       actionButton("submit", "Submit Guess"),
       actionButton("giveup", "Give Up on This State/District"),
       actionButton("restart", "Restart Quiz"),
-      verbatimTextOutput("feedback")
+      verbatimTextOutput("feedback"),
+      checkboxInput("save", "Log results to Google Sheets?", value = FALSE),
+      conditionalPanel(
+        condition = "input.save",
+        textInput("user_name", "Enter your name:"),
+        actionButton("save_results", "Save Results to Google Sheets")
+      )
     ),
     mainPanel(
       leafletOutput("us_map", height = "600px"),
@@ -86,6 +41,36 @@ server <- function(input, output, session) {
   guessed_states   <- reactiveVal(character())
   score            <- reactiveVal(0)
   current_state    <- reactiveVal(NULL)
+  wrong_states     <- reactiveVal(character())
+  wrong_capitals   <- reactiveVal(character())
+  
+  output$question_number <- renderText({
+    total_states <- nrow(states)
+    attempted <- total_states - length(remaining_states())
+    paste0("Question ", min(attempted + 1, total_states), " of ", total_states)
+  })
+  
+  output$progress_bar <- renderUI({
+    total <- nrow(states)
+    attempted <- total - length(remaining_states())
+    percent <- round((attempted / total) * 100)
+    
+    div(
+      style = "margin-top: 5px; margin-bottom: 10px;",
+      div("Progress:", style = "font-weight: bold;"),
+      tags$div(
+        style = "background-color: #e0e0e0; border-radius: 5px; height: 20px;",
+        tags$div(
+          style = paste0(
+            "background-color: #428bca; width: ", percent, "%; ",
+            "height: 100%; border-radius: 5px;"
+          )
+        )
+      ),
+      div(paste0(percent, "% completed"), style = "font-size: 12px; margin-top: 4px;")
+    )
+  })
+  
   
   # Initialize first state
   observe({
@@ -98,7 +83,7 @@ server <- function(input, output, session) {
   # Draw the state shape
   output$state_shape <- renderPlot({
     req(current_state())
-    shape <- states %>% filter(state_name == current_state())
+    shape <- states |> filter(state_name == current_state())
     ggplot(shape) +
       geom_sf(fill = "black") +
       theme_void()
@@ -106,9 +91,9 @@ server <- function(input, output, session) {
   
   # Draw the US map
   output$us_map <- renderLeaflet({
-    leaflet(states) %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      setView(lng = -96, lat = 37.8, zoom = 4) %>%
+    leaflet(states) |>
+      addProviderTiles("CartoDB.Positron") |>
+      setView(lng = -96, lat = 37.8, zoom = 4) |>
       addPolygons(
         layerId = ~state_name,
         data = states,
@@ -121,15 +106,15 @@ server <- function(input, output, session) {
   
   # Helpers for normalization
   normalize_state <- function(x) {
-    x <- str_to_lower(x) %>%
-      str_replace_all("\\.", "") %>%
+    x <- str_to_lower(x) |>
+      str_replace_all("\\.", "") |>
       str_trim()
     if (x == "dc") "district of columbia" else x
   }
   normalize_capital <- function(x) {
-    x <- str_to_lower(x) %>%
-      str_replace_all("\\.", "") %>%
-      str_replace_all("^st ", "saint ") %>%
+    x <- str_to_lower(x) |>
+      str_replace_all("\\.", "") |>
+      str_replace_all("^st ", "saint ") |>
       str_trim()
     x
   }
@@ -146,8 +131,8 @@ server <- function(input, output, session) {
     # Capital check
     is_capital_correct <- TRUE
     if (is_state_correct && input$guess_capital) {
-      true_cap <- states %>%
-        filter(state_name == answered) %>%
+      true_cap <- states |>
+        filter(state_name == answered) |>
         pull(capital)
       is_capital_correct <- normalize_capital(input$capital_guess) ==
         normalize_capital(true_cap)
@@ -160,26 +145,26 @@ server <- function(input, output, session) {
       remaining_states(setdiff(remaining_states(), answered))
       
       # Draw guessed polygons
-      leafletProxy("us_map") %>%
-        clearGroup("guessed") %>%
+      leafletProxy("us_map") |>
+        clearGroup("guessed") |>
         addPolygons(
-          data = states %>% filter(state_name %in% guessed_states()),
+          data = states |> filter(state_name %in% guessed_states()),
           fillColor = "steelblue", fillOpacity = 0.5,
           color = "white", weight = 1,
           label = ~state_name, group = "guessed"
         )
       
       # Draw the capital marker for the answered state
-      coords <- states %>%
-        filter(state_name == answered) %>%
-        st_centroid() %>%
+      coords <- states |>
+        filter(state_name == answered) |>
+        st_centroid() |>
         st_coordinates()
-      capname <- states %>%
-        filter(state_name == answered) %>%
+      capname <- states |>
+        filter(state_name == answered) |>
         pull(capital)
       
-      leafletProxy("us_map") %>%
-        clearGroup("capitals") %>%
+      leafletProxy("us_map") |>
+        clearGroup("capitals") |>
         addCircleMarkers(
           lng = coords[1], lat = coords[2],
           radius = 4, color = "red", fillOpacity = 1, stroke = FALSE,
@@ -198,9 +183,12 @@ server <- function(input, output, session) {
       updateTextInput(session, "capital_guess", value = "")
       
     } else if (!is_state_correct) {
+      wrong_states(c(wrong_states(), current_state()))
       output$feedback <- renderText("❌ Incorrect state guess.")
-    } else {
-      output$feedback <- renderText("✅ State correct, ❌ but capital incorrect.")
+      
+    } else if (!is_capital_correct) {
+      wrong_capitals(c(wrong_capitals(), current_state()))
+      output$feedback <- renderText("✅ State correct, ❌ but capital is incorrect.")
     }
   })
   
@@ -213,25 +201,25 @@ server <- function(input, output, session) {
     remaining_states(setdiff(remaining_states(), given_up))
     
     # Show polygon for the given-up state
-    leafletProxy("us_map") %>%
-      clearGroup("guessed") %>%
+    leafletProxy("us_map") |>
+      clearGroup("guessed") |>
       addPolygons(
-        data = states %>% filter(state_name %in% guessed_states()),
+        data = states |> filter(state_name %in% guessed_states()),
         fillColor = "steelblue", fillOpacity = 0.5,
         color = "white", weight = 1,
         label = ~state_name, group = "guessed"
       )
     
     # Show its capital
-    coords <- states %>%
-      filter(state_name == given_up) %>%
-      st_centroid() %>%
+    coords <- states |>
+      filter(state_name == given_up) |>
+      st_centroid() |>
       st_coordinates()
-    capname <- states %>%
-      filter(state_name == given_up) %>%
+    capname <- states |>
+      filter(state_name == given_up) |>
       pull(capital)
-    leafletProxy("us_map") %>%
-      clearGroup("capitals") %>%
+    leafletProxy("us_map") |>
+      clearGroup("capitals") |>
       addCircleMarkers(
         lng = coords[1], lat = coords[2],
         radius = 4, color = "red", fillOpacity = 1, stroke = FALSE,
@@ -253,24 +241,63 @@ server <- function(input, output, session) {
   
   # Restart handler
   observeEvent(input$restart, {
+    if (input$save) {
+      save_quiz_results()
+    }
     remaining_states(sample(states$state_name))
     guessed_states(character())
     score(0)
     current_state(NULL)
+    wrong_states(character())
+    wrong_capitals(character())
     
-    leafletProxy("us_map") %>%
-      clearGroup("guessed") %>%
+    leafletProxy("us_map") |>
+      clearGroup("guessed") |>
       clearGroup("capitals")
     
     output$feedback <- renderText("🌀 Quiz restarted! Good luck!")
-    updateTextInput(session, "state_guess",  value = "")
+    updateTextInput(session, "state_guess", value = "")
     updateTextInput(session, "capital_guess", value = "")
   })
+  
   
   # Score display
   output$score <- renderText({
     paste("Score:", score(), "/", nrow(states))
   })
+  
+  save_quiz_results <- function() {
+    if (input$user_name == "") {
+      showNotification("⚠️ Please enter your name before saving.", type = "warning")
+      return()
+    }
+    
+    result_row <- data.frame(
+      date = as.character(Sys.Date()),
+      name = input$user_name,
+      score = score(),
+      wrong_states = paste(wrong_states(), collapse = "; "),
+      wrong_capitals = if (input$guess_capital) paste(wrong_capitals(), collapse = "; ") else NA,
+      stringsAsFactors = FALSE
+    )
+    
+    sheet_url <- "https://docs.google.com/spreadsheets/d/13T0IL4pZO2RNwT-kWqbc7O4Trv2uRBkew8occILbWz8"
+    
+    tryCatch({
+      googlesheets4::sheet_append(sheet_url, result_row)
+      showNotification("✅ Results saved to Google Sheets!", type = "message")
+    }, error = function(e) {
+      showNotification(paste("❌ Save failed:", e$message), type = "error")
+    })
+  }
+  
+  observeEvent(input$save_results, {
+    save_quiz_results()
+  })
+  
+  
 }
+
+
 
 shinyApp(ui, server)
