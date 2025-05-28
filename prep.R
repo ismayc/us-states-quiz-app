@@ -1,3 +1,7 @@
+library(tidyverse)
+library(tigris)
+library(sf)
+
 options(tigris_use_cache = TRUE)
 
 # Load US state shapes (excluding territories)
@@ -46,7 +50,7 @@ capitals <- tibble::tibble(
 )
 
 # Need to run 01-largest_cities_by_state.R to get the largest cities
-# source("01-largest_cities_by_state.R")
+source("01-largest_cities_by_state.R")
 states_raw3 <- left_join(states_raw2, capitals, by = "state_name") |> 
   mutate(
     capital = if_else(state_name == "District of Columbia",
@@ -55,8 +59,8 @@ states_raw3 <- left_join(states_raw2, capitals, by = "state_name") |>
   ) |> 
   left_join(y = read_rds("largest_cities_by_state2023.rds"), by = "state_name")
 
-# write_rds(states_raw3, "states2023.rds")
+write_rds(states_raw3, "states2023.rds")
 
 # Need to run 02-get_city_coordinates.R to get the coordinates
-# source("02-get_city_coordinates.R")
+source("02-get_city_coordinates.R")
 

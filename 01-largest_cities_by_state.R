@@ -44,6 +44,11 @@ city_data <- city_table |>
       "\\[\\d+\\]",
       ""
     ),
+    largest_city = str_replace_all(
+      largest_city,
+      "1",
+      ""
+    ),
     second_largest_city = str_replace_all(
       second_largest_city,
       " 1",

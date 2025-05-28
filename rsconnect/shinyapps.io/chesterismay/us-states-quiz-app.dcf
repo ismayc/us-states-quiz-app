@@ -5,9 +5,9 @@ account: chesterismay
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 14700287
-bundleId: 10247525
+bundleId: 10319312
 url: https://chesterismay.shinyapps.io/us-states-quiz-app/
 version: 1
 asMultiple: FALSE
 asStatic: FALSE
-ignoredFiles: .RData|01-largest_cities_by_state.R|02-get_city_coordinates.R|largest_cities_by_state2023.rds|prep.R|README.md|states2023.rds
+ignoredFiles: .RData|01-largest_cities_by_state.R|02-get_city_coordinates.R|03-get_state_areas.R|largest_cities_by_state2023.rds|prep.R|README.md|states2023.rds|us_states_area.csv
