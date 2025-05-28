@@ -5,6 +5,7 @@ library(leaflet)
 library(tidyverse)
 library(sf)
 library(stringdist)
+library(ggstar)
 
 states <- read_rds("states_enriched2023.rds")
 state_areas <- read_rds("state_areas.rds") |> 
@@ -129,6 +130,19 @@ ui <- fluidPage(
 
 # Server
 server <- function(input, output, session) {
+  
+  # all_states <- states$state_name
+  # test_front <- c("Wyoming", "Colorado")
+  # other_states <- setdiff(all_states, test_front)
+  # 
+  # # a helper that always prefixes WY & CO, then shuffles the rest:
+  # make_order <- function() {
+  #   c(test_front, sample(other_states))
+  # }
+  # 
+  # # initialize reactiveVal with our special order:
+  # remaining_states <- reactiveVal(make_order())
+  
   remaining_states <- reactiveVal(sample(states$state_name))
   guessed_states <- reactiveVal(character())
   score <- reactiveVal(0)
@@ -145,16 +159,16 @@ server <- function(input, output, session) {
     req(input$provide_area, current_state())
     
     # current state’s area
-    cur_area <- state_areas %>%
-      filter(state_name == current_state()) %>%
+    cur_area <- state_areas |>
+      filter(state_name == current_state()) |>
       pull(area_sq_mi)
     
     # find two with smallest area difference and rename columns
-    state_areas %>%
-      filter(state_name != current_state()) %>%
-      mutate(area_diff = abs(area_sq_mi - cur_area)) %>%
-      arrange(area_diff) %>%
-      slice_head(n = 2) %>%
+    state_areas |>
+      filter(state_name != current_state()) |>
+      mutate(area_diff = abs(area_sq_mi - cur_area)) |>
+      arrange(area_diff) |>
+      slice_head(n = 2) |>
       arrange(area_rank) |> 
       select(
         `Area Rank` = area_rank,
@@ -212,14 +226,36 @@ server <- function(input, output, session) {
     }
   })
   
-  # Draw the state shape
+  # Draw the state shape (with capital star for WY and CO)
   output$state_shape <- renderPlot({
     req(current_state())
     shape <- states |> filter(state_name == current_state())
+    
     ggplot(shape) +
       geom_sf(fill = "black") +
-      theme_void()
+      theme_void() -> p
+    
+    if (current_state() %in% c("Wyoming", "Colorado")) {
+      cap_df <- shape |>
+        select(capital, longitude_capital, latitude_capital) |>
+        rename(lon = longitude_capital, lat = latitude_capital)
+      
+      p <- p +
+        geom_star(
+          data      = cap_df,
+          aes(x = lon, y = lat),
+          # https://cran.r-project.org/web/packages/ggstar/vignettes/ggstar.html
+          starshape = 1,     # 5-pointed star (pentagram)
+          fill      = "white",
+          colour    = NA,
+          size      = 4      # numeric size in mm
+        )
+    }
+    
+    p
   })
+  
+  
   
   # Draw the US map
   output$us_map <- renderLeaflet({
@@ -367,7 +403,7 @@ server <- function(input, output, session) {
     
     if (is_strict_state) {
       # exact correct!
-      feedback_parts <- c(feedback_parts, paste0("✅ ", answered, " is correct state!"))
+      feedback_parts <- c(feedback_parts, paste0("✅ ", answered, " is the correct state!"))
     } else if (dist_state <= dist_tolerance) {
       # close but wrong
       feedback_parts <- c(
@@ -385,13 +421,13 @@ server <- function(input, output, session) {
     # --- CAPITAL: only if state was strict correct ---
     is_strict_cap <- TRUE
     if (is_strict_state && input$guess_capital) {
-      true_cap       <- states %>% filter(state_name == answered) %>% pull(capital)
+      true_cap       <- states |> filter(state_name == answered) |> pull(capital)
       guess_cap      <- normalize_capital(input$capital_guess)
       dist_cap       <- stringdist(guess_cap, normalize_capital(true_cap), method = "lv")
       is_strict_cap  <- guess_cap == normalize_capital(true_cap)
       
       if (is_strict_cap) {
-        feedback_parts <- c(feedback_parts, paste0("✅ ", true_cap, " is correct capital!"))
+        feedback_parts <- c(feedback_parts, paste0("✅ ", true_cap, " is the correct capital!"))
       } else if (dist_cap <= dist_tolerance) {
         feedback_parts <- c(
           feedback_parts,
@@ -408,13 +444,13 @@ server <- function(input, output, session) {
     # --- LARGEST CITY: only if state was strict correct ---
     is_strict_largest <- TRUE
     if (is_strict_state && input$guess_largest) {
-      true_largest       <- states %>% filter(state_name == answered) %>% pull(largest_city)
+      true_largest       <- states |> filter(state_name == answered) |> pull(largest_city)
       guess_largest      <- normalize_city(input$largest_guess)
       dist_largest       <- stringdist(guess_largest, normalize_city(true_largest), method = "lv")
       is_strict_largest  <- guess_largest == normalize_city(true_largest)
       
       if (is_strict_largest) {
-        feedback_parts <- c(feedback_parts, paste0("✅ ", true_largest, " is correct largest city!"))
+        feedback_parts <- c(feedback_parts, paste0("✅ ", true_largest, " is the correct largest city!"))
       } else if (dist_largest <= dist_tolerance) {
         feedback_parts <- c(
           feedback_parts,
@@ -431,13 +467,13 @@ server <- function(input, output, session) {
     # --- SECOND LARGEST CITY: only if state was strict correct ---
     is_strict_second <- TRUE
     if (is_strict_state && input$guess_second) {
-      true_second       <- states %>% filter(state_name == answered) %>% pull(second_largest_city)
+      true_second       <- states |> filter(state_name == answered) |> pull(second_largest_city)
       guess_second      <- normalize_city(input$second_guess)
       dist_second       <- stringdist(guess_second, normalize_city(true_second), method = "lv")
       is_strict_second  <- guess_second == normalize_city(true_second)
       
       if (is_strict_second) {
-        feedback_parts <- c(feedback_parts, paste0("✅ ", true_second, " is correct second largest city!"))
+        feedback_parts <- c(feedback_parts, paste0("✅ ", true_second, " is the correct second largest city!"))
       } else if (dist_second <= dist_tolerance) {
         feedback_parts <- c(
           feedback_parts,
@@ -461,15 +497,15 @@ server <- function(input, output, session) {
       remaining_states(setdiff(remaining_states(), answered))
       
       # rebuild labels and update map
-      guessed_df <- states %>% filter(state_name %in% guessed_states())
+      guessed_df <- states |> filter(state_name %in% guessed_states())
       labels <- paste0(
         guessed_df$state_name,
         "<br>Population (2023): ",
         format(guessed_df$state_population, big.mark = ",")
-      ) %>% lapply(htmltools::HTML)
+      ) |> lapply(htmltools::HTML)
       
-      leafletProxy("us_map") %>%
-        clearGroup("guessed") %>%
+      leafletProxy("us_map") |>
+        clearGroup("guessed") |>
         addPolygons(
           data        = guessed_df,
           fillColor   = "steelblue",
@@ -573,11 +609,11 @@ server <- function(input, output, session) {
     wrong_second_largests(character())
     
     # reset the map: remove every shape/marker group, then re‑add the all‑black polygons
-    leafletProxy("us_map") %>%
-      clearShapes() %>%            # removes all polygons (including guessed blue ones)
-      clearGroup("capitals") %>%    # removes any capital markers
-      clearGroup("largest") %>%     # removes any largest‑city markers
-      clearGroup("second_largest") %>% # removes second‑largest markers
+    leafletProxy("us_map") |>
+      clearShapes() |>            # removes all polygons (including guessed blue ones)
+      clearGroup("capitals") |>    # removes any capital markers
+      clearGroup("largest") |>     # removes any largest‑city markers
+      clearGroup("second_largest") |> # removes second‑largest markers
       addPolygons(
         data = states,
         layerId = ~state_name,
