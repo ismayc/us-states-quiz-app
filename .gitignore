@@ -4,3 +4,4 @@
 .Ruserdata
 rsconnect/
 *.json
+.DS_Store

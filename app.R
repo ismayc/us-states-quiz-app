@@ -401,6 +401,12 @@ server <- function(input, output, session) {
     dist_state       <- stringdist(guess_state, true_state, method = "lv")
     is_strict_state  <- guess_state == true_state
     
+    # --- Always grab truth data for this state once ---
+    state_info   <- states |> dplyr::filter(state_name == answered)
+    true_cap     <- state_info$capital
+    true_largest <- state_info$largest_city
+    true_second  <- state_info$second_largest_city
+    
     if (is_strict_state) {
       # exact correct!
       feedback_parts <- c(feedback_parts, paste0("✅ ", answered, " is the correct state!"))
@@ -409,7 +415,7 @@ server <- function(input, output, session) {
       feedback_parts <- c(
         feedback_parts,
         paste0("❗ Misspelling: You are off by ", dist_state,
-               " character", ifelse(dist_state>1, "s", ""))
+               " character", ifelse(dist_state > 1, "s", ""))
       )
       wrong_states(c(wrong_states(), answered))
     } else {
@@ -485,6 +491,28 @@ server <- function(input, output, session) {
         feedback_parts <- c(feedback_parts, "❌ Second largest city incorrect")
         wrong_second_largests(c(wrong_second_largests(), answered))
       }
+    }
+    
+    # Build FYI only for items NOT selected to be guessed
+    fyi_lines <- character()
+    if (!isTRUE(input$guess_capital)) {
+      fyi_lines <- c(fyi_lines, paste0("🏛️ Capital: ", true_cap))
+    }
+    if (!isTRUE(input$guess_largest)) {
+      fyi_lines <- c(fyi_lines, paste0("🌆 Largest city: ", true_largest))
+    }
+    if (!isTRUE(input$guess_second)) {
+      fyi_lines <- c(fyi_lines, paste0("🏙️ Second largest city: ", true_second))
+    }
+    
+    # Append FYI block only when the state is strictly correct and there’s something to show
+    if (is_strict_state && length(fyi_lines) > 0) {
+      feedback_parts <- c(
+        feedback_parts,
+        "",
+        "🤔 In case you were wondering...",
+        fyi_lines
+      )
     }
     
     # render feedback text
