@@ -1,0 +1,75 @@
+name: Deploy shinylive site to GitHub Pages
+
+# Builds a fully static, browser-only (webR/WASM) build of the app with
+# {shinylive} and publishes it to GitHub Pages on every push to the default
+# branch. The result runs entirely client-side at:
+#   https://ismayc.github.io/us-states-quiz-app/
+# This is independent of the shinyapps.io deploy; both use the same app.R.
+# The Google Sheets key is never part of this build, so app.R hides the
+# "save results" option here.
+#
+# Requires Pages to be enabled with "Build and deployment -> Source: GitHub
+# Actions" (Settings -> Pages). No secrets are needed.
+
+on:
+  push:
+    branches: [master, main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Install shinylive
+        run: Rscript -e 'install.packages("shinylive")'
+
+      - name: Stage runtime app files
+        # Only what the app reads at runtime; the prep scripts and CSVs stay out.
+        run: |
+          mkdir -p _app
+          cp app.R states_enriched2023.rds state_areas.rds _app/
+
+      - name: Export to a static shinylive site
+        # include_in_head adds the icon and link-preview tags from site/head.html
+        run: |
+          Rscript -e 'shinylive::export("_app", "_site", template_params = list(
+            title = "US State/District Shape Quiz",
+            include_in_head = paste(readLines("site/head.html"), collapse = "\n")
+          ))'
+
+      - name: Add icons and link-preview image
+        # Rendered from the SVG sources by site/make_assets.R
+        run: cp site/favicon.svg site/favicon-32.png site/apple-touch-icon.png site/og-image.png _site/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

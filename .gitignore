@@ -5,3 +5,7 @@
 rsconnect/
 *.json
 .DS_Store
+
+# Local shinylive build output (built in CI by .github/workflows/pages.yaml)
+_app/
+_site/

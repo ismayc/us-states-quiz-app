@@ -14,9 +14,15 @@ state_areas <- read_rds("state_areas.rds") |>
 
 dist_tolerance <- 2
 
-library(googlesheets4)
-
-googlesheets4::gs4_auth(path = "shiny-sheets-writer-key.json")
+# Logging results to Google Sheets needs the service-account key, which only
+# the shinyapps.io deploy has. The shinylive (browser) build ships without it,
+# so the save option is hidden there.
+sheets_key <- "shiny-sheets-writer-key.json"
+can_save <- file.exists(sheets_key)
+if (can_save) {
+  library(googlesheets4)
+  googlesheets4::gs4_auth(path = sheets_key)
+}
 
 
 # UI
@@ -102,16 +108,20 @@ ui <- fluidPage(
       actionButton("giveup", "Give Up on This Question"),
       actionButton("restart", "Restart Quiz"),
       verbatimTextOutput("feedback"),
-      checkboxInput(
-        "save",
-        "Log overall quiz results to Google Sheets?",
-        value = FALSE
-      ),
-      conditionalPanel(
-        condition = "input.save",
-        textInput("user_name", "Enter your name:"),
-        actionButton("save_results", "Save Results to Google Sheets")
-      )
+      if (can_save) {
+        tagList(
+          checkboxInput(
+            "save",
+            "Log overall quiz results to Google Sheets?",
+            value = FALSE
+          ),
+          conditionalPanel(
+            condition = "input.save",
+            textInput("user_name", "Enter your name:"),
+            actionButton("save_results", "Save Results to Google Sheets")
+          )
+        )
+      }
     ),
     mainPanel(
       helpText(
@@ -623,7 +633,7 @@ server <- function(input, output, session) {
   })
   # Restart handler
   observeEvent(input$restart, {
-    if (input$save) {
+    if (isTRUE(input$save)) {
       save_quiz_results()
     }
     # reset your quiz state
