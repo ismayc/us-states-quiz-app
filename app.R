@@ -260,7 +260,8 @@ server <- function(input, output, session) {
   # Draw the US map
   output$us_map <- renderLeaflet({
     leaflet(states) |>
-      addProviderTiles("CartoDB.Positron") |>
+      # CARTO basemaps now need an API key; Esri's gray canvas does not
+      addProviderTiles("Esri.WorldGrayCanvas") |>
       setView(lng = -96, lat = 37.8, zoom = 4) |>
       addPolygons(
         layerId = ~state_name,
